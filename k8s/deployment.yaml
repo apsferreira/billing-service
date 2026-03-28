@@ -1,7 +1,7 @@
 # =============================================================================
 # billing-service — Deployment
 # Namespace: production
-# Imagem: ghcr.io/apsferreira/billing-service:latest
+# Imagem: ghcr.io/apsferreira/billing-service:sha-7ea86fa
 # Resources: 256Mi RAM, 100m CPU (serviço event-driven de baixo throughput)
 # Secrets: billing-secrets (DATABASE_URL, RABBITMQ_URL, NFSE_CERT_*, SERVICE_TOKEN)
 # =============================================================================
@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: ghcr.io/apsferreira/billing-service:latest
+          image: ghcr.io/apsferreira/billing-service:sha-7ea86fa
           ports:
             - containerPort: 3030
               name: http
