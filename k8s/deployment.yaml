@@ -1,0 +1,68 @@
+# =============================================================================
+# billing-service — Deployment
+# Namespace: production
+# Imagem: ghcr.io/apsferreira/billing-service:latest
+# Resources: 256Mi RAM, 100m CPU (serviço event-driven de baixo throughput)
+# Secrets: billing-secrets (DATABASE_URL, RABBITMQ_URL, NFSE_CERT_*, SERVICE_TOKEN)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-service
+  namespace: production
+  labels:
+    app: billing-service
+    component: backend
+    team: apsferreira
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: billing-service
+  template:
+    metadata:
+      labels:
+        app: billing-service
+        component: backend
+    spec:
+      containers:
+        - name: backend
+          image: ghcr.io/apsferreira/billing-service:latest
+          ports:
+            - containerPort: 3030
+              name: http
+          envFrom:
+            - configMapRef:
+                name: billing-config
+            - secretRef:
+                name: billing-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3030
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3030
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "100m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

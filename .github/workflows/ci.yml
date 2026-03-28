@@ -1,0 +1,138 @@
+# =============================================================================
+# billing-service — CI/CD Pipeline
+# GitHub Actions + GHCR + ArgoCD GitOps
+#
+# Fluxo:
+#   push main → build + push :sha-{hash} + :latest → atualiza k8s/ → ArgoCD sync
+#   pull_request → build + test only (sem push)
+# =============================================================================
+
+name: CI/CD — Billing Service
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/apsferreira/billing-service
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build, test e push da imagem backend
+  # ---------------------------------------------------------------------------
+  build-backend:
+    name: Build e Test Backend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Obter short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Setup Go 1.24
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: false
+
+      - name: Resolver dependências
+        working-directory: backend
+        run: GOTOOLCHAIN=auto go mod tidy
+
+      - name: Lint
+        continue-on-error: true
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: backend
+          args: --timeout=3m
+
+      - name: Scan de segurança (gosec)
+        continue-on-error: true
+        working-directory: backend
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec ./...
+
+      - name: Testes unitários
+        working-directory: backend
+        run: GOTOOLCHAIN=auto go test ./... -v -cover
+
+      - name: Setup Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login no GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        if: github.event_name != 'pull_request'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build e Push imagem
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------------
+  # Atualiza manifest K8s para ArgoCD (GitOps — somente main)
+  # ---------------------------------------------------------------------------
+  update-manifests:
+    name: Atualizar Manifests K8s
+    runs-on: ubuntu-latest
+    needs: build-backend
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Obter short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Atualizar tag da imagem no deployment
+        run: |
+          sed -i "s|${{ env.IMAGE }}:.*|${{ env.IMAGE }}:sha-${{ steps.sha.outputs.short }}|g" \
+            k8s/deployment.yaml
+
+      - name: Commit e push manifests atualizados
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add k8s/deployment.yaml
+          git diff --staged --quiet || git commit -m "chore(k8s): atualiza imagem para sha-${{ steps.sha.outputs.short }} [skip ci]"
+          git pull --rebase origin main
+          git push

@@ -1,0 +1,21 @@
+# Binários
+backend/billing-service
+*.exe
+*.out
+
+# Ambiente local
+.env
+.env.local
+*.pfx
+*.p12
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Go cache
+vendor/

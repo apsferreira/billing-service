@@ -1,0 +1,22 @@
+# =============================================================================
+# billing-service — ConfigMap
+# Namespace: production
+# Valores não sensíveis. Secrets ficam em billing-secrets (Secret K8s).
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: billing-config
+  namespace: production
+  labels:
+    app: billing-service
+    team: apsferreira
+data:
+  PORT: "3030"
+  SERVICE_NAME: "billing-service"
+  SERVICE_VERSION: "1.0.0"
+  NFSE_ENVIRONMENT: "producao"
+  NFSE_ENDPOINT_URL: "https://producao.sefin.salvador.ba.gov.br/nfse-ws/services/NfseServiceV2"
+  NFSE_ITEM_LISTA: "01.07"
+  NFSE_ALIQUOTA: "5.0"
+  AUTH_SERVICE_URL: "http://auth-service:3010"

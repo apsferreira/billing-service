@@ -1,0 +1,210 @@
+package repository
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"billing-service/internal/models"
+)
+
+// InvoiceRepository gerencia persistência de faturas no PostgreSQL.
+// Todas as queries usam prepared statements com parâmetros $N (R1).
+type InvoiceRepository struct {
+	db *pgxpool.Pool
+}
+
+// NewInvoiceRepository cria um novo repositório de faturas.
+func NewInvoiceRepository(db *pgxpool.Pool) *InvoiceRepository {
+	return &InvoiceRepository{db: db}
+}
+
+// Create insere uma nova fatura com status pending.
+func (r *InvoiceRepository) Create(ctx context.Context, invoice *models.Invoice) error {
+	query := `
+		INSERT INTO invoices (
+			id, order_id, customer_id, tenant_id,
+			amount, service_description, status,
+			attempts, created_at, updated_at
+		) VALUES (
+			$1, $2, $3, $4,
+			$5, $6, $7,
+			$8, $9, $10
+		)`
+
+	now := time.Now().UTC()
+	invoice.CreatedAt = now
+	invoice.UpdatedAt = now
+
+	_, err := r.db.Exec(ctx, query,
+		invoice.ID,
+		invoice.OrderID,
+		invoice.CustomerID,
+		invoice.TenantID,
+		invoice.Amount,
+		invoice.ServiceDescription,
+		invoice.Status,
+		invoice.Attempts,
+		invoice.CreatedAt,
+		invoice.UpdatedAt,
+	)
+	return err
+}
+
+// GetByID busca uma fatura pelo ID.
+func (r *InvoiceRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Invoice, error) {
+	query := `
+		SELECT
+			id, order_id, customer_id, tenant_id,
+			amount, service_description, status,
+			nfse_number, nfse_code, nfse_xml, nfse_pdf_url,
+			error_message, attempts, issued_at,
+			created_at, updated_at
+		FROM invoices
+		WHERE id = $1`
+
+	inv := &models.Invoice{}
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&inv.ID, &inv.OrderID, &inv.CustomerID, &inv.TenantID,
+		&inv.Amount, &inv.ServiceDescription, &inv.Status,
+		&inv.NfseNumber, &inv.NfseCode, &inv.NfseXML, &inv.NfsePDFURL,
+		&inv.ErrorMessage, &inv.Attempts, &inv.IssuedAt,
+		&inv.CreatedAt, &inv.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return inv, nil
+}
+
+// GetByOrderID busca a fatura associada a um pedido.
+func (r *InvoiceRepository) GetByOrderID(ctx context.Context, orderID uuid.UUID) (*models.Invoice, error) {
+	query := `
+		SELECT
+			id, order_id, customer_id, tenant_id,
+			amount, service_description, status,
+			nfse_number, nfse_code, nfse_xml, nfse_pdf_url,
+			error_message, attempts, issued_at,
+			created_at, updated_at
+		FROM invoices
+		WHERE order_id = $1
+		LIMIT 1`
+
+	inv := &models.Invoice{}
+	err := r.db.QueryRow(ctx, query, orderID).Scan(
+		&inv.ID, &inv.OrderID, &inv.CustomerID, &inv.TenantID,
+		&inv.Amount, &inv.ServiceDescription, &inv.Status,
+		&inv.NfseNumber, &inv.NfseCode, &inv.NfseXML, &inv.NfsePDFURL,
+		&inv.ErrorMessage, &inv.Attempts, &inv.IssuedAt,
+		&inv.CreatedAt, &inv.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return inv, nil
+}
+
+// List retorna faturas paginadas com filtros opcionais.
+func (r *InvoiceRepository) List(ctx context.Context, filter models.ListInvoicesFilter) ([]models.Invoice, int, error) {
+	if filter.Page < 1 {
+		filter.Page = 1
+	}
+	if filter.PageSize < 1 || filter.PageSize > 100 {
+		filter.PageSize = 20
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+
+	// Construção segura da query com prepared statements
+	args := []interface{}{}
+	argIdx := 1
+	where := "WHERE 1=1"
+
+	if filter.Status != "" {
+		where += fmt.Sprintf(" AND status = $%d", argIdx)
+		args = append(args, string(filter.Status))
+		argIdx++
+	}
+	if filter.CustomerID != "" {
+		where += fmt.Sprintf(" AND customer_id = $%d", argIdx)
+		args = append(args, filter.CustomerID)
+		argIdx++
+	}
+
+	countQuery := "SELECT COUNT(*) FROM invoices " + where
+	var total int
+	if err := r.db.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	args = append(args, filter.PageSize, offset)
+	dataQuery := fmt.Sprintf(`
+		SELECT
+			id, order_id, customer_id, tenant_id,
+			amount, service_description, status,
+			nfse_number, nfse_code, nfse_xml, nfse_pdf_url,
+			error_message, attempts, issued_at,
+			created_at, updated_at
+		FROM invoices
+		%s
+		ORDER BY created_at DESC
+		LIMIT $%d OFFSET $%d`, where, argIdx, argIdx+1)
+
+	rows, err := r.db.Query(ctx, dataQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var invoices []models.Invoice
+	for rows.Next() {
+		var inv models.Invoice
+		if err := rows.Scan(
+			&inv.ID, &inv.OrderID, &inv.CustomerID, &inv.TenantID,
+			&inv.Amount, &inv.ServiceDescription, &inv.Status,
+			&inv.NfseNumber, &inv.NfseCode, &inv.NfseXML, &inv.NfsePDFURL,
+			&inv.ErrorMessage, &inv.Attempts, &inv.IssuedAt,
+			&inv.CreatedAt, &inv.UpdatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		invoices = append(invoices, inv)
+	}
+
+	return invoices, total, nil
+}
+
+// UpdateStatus atualiza o status e campos relacionados à emissão da NFS-e.
+func (r *InvoiceRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status models.InvoiceStatus, fields map[string]interface{}) error {
+	fields["status"] = string(status)
+	fields["updated_at"] = time.Now().UTC()
+
+	// Construção segura dos campos a atualizar
+	setClause := ""
+	args := []interface{}{}
+	argIdx := 1
+
+	for k, v := range fields {
+		if setClause != "" {
+			setClause += ", "
+		}
+		setClause += fmt.Sprintf("%s = $%d", k, argIdx)
+		args = append(args, v)
+		argIdx++
+	}
+
+	args = append(args, id)
+	query := fmt.Sprintf("UPDATE invoices SET %s WHERE id = $%d", setClause, argIdx)
+
+	_, err := r.db.Exec(ctx, query, args...)
+	return err
+}
+
+// IncrementAttempts incrementa o contador de tentativas de emissão.
+func (r *InvoiceRepository) IncrementAttempts(ctx context.Context, id uuid.UUID) error {
+	query := `UPDATE invoices SET attempts = attempts + 1, updated_at = $1 WHERE id = $2`
+	_, err := r.db.Exec(ctx, query, time.Now().UTC(), id)
+	return err
+}
