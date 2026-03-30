@@ -40,7 +40,7 @@ func main() {
 	// Dependências
 	invoiceRepo := repository.NewInvoiceRepository(dbPool)
 
-	nfseClient := nfse.NewNFSeClient(
+	nfseClient, err := nfse.NewNFSeClient(
 		cfg.NFSeEndpointURL,
 		cfg.NFSeEnvironment,
 		cfg.NFSeProviderCNPJ,
@@ -48,6 +48,9 @@ func main() {
 		cfg.NFSeCertPath,
 		cfg.NFSeCertPassword,
 	)
+	if err != nil {
+		log.Fatalf("falha ao inicializar cliente NFS-e: %v", err)
+	}
 
 	billingSvc := service.NewBillingService(invoiceRepo, nfseClient, cfg.NFSeAliquota, cfg.NFSeItemLista)
 
