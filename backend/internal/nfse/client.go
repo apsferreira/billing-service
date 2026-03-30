@@ -45,12 +45,9 @@ func NewNFSeClient(endpointURL, environment, providerCNPJ, providerIM, certPath,
 	}
 
 	if certPath == "" {
-		if environment == "producao" {
-			return nil, fmt.Errorf("NFSE_CERT_PATH é obrigatório em ambiente de produção")
-		}
-		// Modo stub: HTTP client padrão sem mTLS (apenas homologação sem certificado)
+		// Modo stub: HTTP client padrão sem mTLS (certificado A1 pendente)
 		c.httpClient = &http.Client{Timeout: 30 * time.Second}
-		log.Printf("[nfse] inicializado em modo stub — NFSE_CERT_PATH não definido (ambiente: %s)", environment)
+		log.Printf("[nfse] inicializado em modo stub — NFSE_CERT_PATH não definido (ambiente: %s). Emissão real desabilitada até configurar certificado A1.", environment)
 		return c, nil
 	}
 
