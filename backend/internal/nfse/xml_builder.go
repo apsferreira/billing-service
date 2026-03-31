@@ -49,11 +49,16 @@ func BuildEnviarLoteRpsEnvio(rps *RPS, loteID string) (string, error) {
 	sb.WriteString(fmt.Sprintf("      <Rps><InfDeclaracaoPrestacaoServico Id=\"rps%s\">\n", escapeXML(rps.Numero)))
 
 	// Rps (identificação)
+	rpsTypeCode := int(rps.Tipo)
+	if rpsTypeCode == 0 {
+		rpsTypeCode = int(RPSTypeRPS) // default: RPS normal
+	}
+
 	sb.WriteString("        <Rps>\n")
 	sb.WriteString(fmt.Sprintf("          <IdentificacaoRps>\n"))
 	sb.WriteString(fmt.Sprintf("            <Numero>%s</Numero>\n", escapeXML(rps.Numero)))
 	sb.WriteString(fmt.Sprintf("            <Serie>%s</Serie>\n", escapeXML(rps.Serie)))
-	sb.WriteString("            <Tipo>1</Tipo>\n") // 1 = RPS
+	sb.WriteString(fmt.Sprintf("            <Tipo>%d</Tipo>\n", rpsTypeCode))
 	sb.WriteString("          </IdentificacaoRps>\n")
 	sb.WriteString(fmt.Sprintf("          <DataEmissao>%s</DataEmissao>\n", dataEmissao))
 	sb.WriteString("          <Status>1</Status>\n") // 1 = Normal

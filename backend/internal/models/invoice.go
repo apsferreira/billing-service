@@ -17,6 +17,14 @@ const (
 	StatusCancelled  InvoiceStatus = "cancelled"
 )
 
+// RPSType define o tipo de RPS conforme ABRASF.
+type RPSType string
+
+const (
+	RPSTypeNormal   RPSType = "RPS"
+	RPSTypeDevolucao RPSType = "RPS-D"
+)
+
 // Invoice representa uma fatura e sua NFS-e associada.
 type Invoice struct {
 	ID                 uuid.UUID     `json:"id"`
@@ -26,6 +34,10 @@ type Invoice struct {
 	Amount             float64       `json:"amount"`
 	ServiceDescription string        `json:"service_description"`
 	Status             InvoiceStatus `json:"status"`
+	RPSType            RPSType       `json:"rps_type"`
+	CDCDeadline        *time.Time    `json:"cdc_deadline,omitempty"`
+	ReversedByInvoiceID *uuid.UUID   `json:"reversed_by_invoice_id,omitempty"`
+	OriginalInvoiceID  *uuid.UUID    `json:"original_invoice_id,omitempty"`
 	NfseNumber         *string       `json:"nfse_number,omitempty"`
 	NfseCode           *string       `json:"nfse_code,omitempty"`
 	NfseXML            *string       `json:"nfse_xml,omitempty"`
@@ -44,6 +56,16 @@ type PaymentConfirmedEvent struct {
 	TenantID           string  `json:"tenant_id,omitempty"`
 	Amount             float64 `json:"amount"`
 	ServiceDescription string  `json:"service_description,omitempty"`
+}
+
+// SubscriptionCancelledEvent representa o evento recebido quando uma assinatura é cancelada.
+type SubscriptionCancelledEvent struct {
+	SubscriptionID string `json:"subscription_id"`
+	CustomerID     string `json:"customer_id"`
+	OrderID        string `json:"order_id"`
+	// Reason: "cdc_art49" para cancelamento dentro do prazo CDC Art. 49,
+	// ou "customer_request" para cancelamento comum.
+	Reason string `json:"reason"`
 }
 
 // ListInvoicesFilter filtros disponíveis para listagem de faturas.

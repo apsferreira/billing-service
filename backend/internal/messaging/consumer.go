@@ -14,8 +14,12 @@ import (
 
 const (
 	exchangeName = "iit.events"
-	queueName    = "billing.payment.confirmed"
-	routingKey   = "payment.confirmed"
+
+	queuePaymentConfirmed   = "billing.payment.confirmed"
+	routingPaymentConfirmed = "payment.confirmed"
+
+	queueSubscriptionCancelled   = "billing.subscription.cancelled"
+	routingSubscriptionCancelled = "subscription.cancelled"
 )
 
 // Consumer consome eventos do RabbitMQ e aciona o BillingService.
@@ -64,7 +68,7 @@ func (c *Consumer) Start(ctx context.Context) {
 	}
 }
 
-// run estabelece conexão, declara exchange/queue e inicia consumo.
+// run estabelece conexão, declara exchange/queues e inicia consumo.
 func (c *Consumer) run(ctx context.Context) error {
 	conn, err := amqp.Dial(c.url)
 	if err != nil {
@@ -91,27 +95,13 @@ func (c *Consumer) run(ctx context.Context) error {
 		return err
 	}
 
-	// Declarar queue durable
-	q, err := ch.QueueDeclare(
-		queueName,
-		true,  // durable
-		false, // auto-delete
-		false, // exclusive
-		false, // no-wait
-		nil,
-	)
-	if err != nil {
+	// Declarar e bindar queue de payment.confirmed
+	if err := c.declareAndBind(ch, queuePaymentConfirmed, routingPaymentConfirmed); err != nil {
 		return err
 	}
 
-	// Bind queue ao exchange com routing key payment.confirmed
-	if err := ch.QueueBind(
-		q.Name,
-		routingKey,
-		exchangeName,
-		false,
-		nil,
-	); err != nil {
+	// Declarar e bindar queue de subscription.cancelled
+	if err := c.declareAndBind(ch, queueSubscriptionCancelled, routingSubscriptionCancelled); err != nil {
 		return err
 	}
 
@@ -120,9 +110,10 @@ func (c *Consumer) run(ctx context.Context) error {
 		return err
 	}
 
-	msgs, err := ch.Consume(
-		q.Name,
-		"billing-service",
+	// Consumir payment.confirmed
+	msgsPayment, err := ch.Consume(
+		queuePaymentConfirmed,
+		"billing-service-payment",
 		false, // auto-ack: false — ACK manual após processamento
 		false,
 		false,
@@ -133,7 +124,21 @@ func (c *Consumer) run(ctx context.Context) error {
 		return err
 	}
 
-	log.Printf("[consumer] aguardando eventos em queue=%s routing_key=%s", queueName, routingKey)
+	// Consumir subscription.cancelled
+	msgsCancelled, err := ch.Consume(
+		queueSubscriptionCancelled,
+		"billing-service-cancelled",
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("[consumer] aguardando eventos: %s e %s", routingPaymentConfirmed, routingSubscriptionCancelled)
 
 	// Monitorar fechamento da conexão
 	connClosed := conn.NotifyClose(make(chan *amqp.Error, 1))
@@ -149,38 +154,64 @@ func (c *Consumer) run(ctx context.Context) error {
 			}
 			return nil
 
-		case msg, ok := <-msgs:
+		case msg, ok := <-msgsPayment:
 			if !ok {
 				return nil
 			}
-			c.handleMessage(ctx, msg)
+			c.handlePaymentConfirmed(ctx, msg)
+
+		case msg, ok := <-msgsCancelled:
+			if !ok {
+				return nil
+			}
+			c.handleSubscriptionCancelled(ctx, msg)
 		}
 	}
 }
 
-// handleMessage processa uma mensagem do RabbitMQ.
+// declareAndBind declara uma queue durable e a vincula ao exchange com a routing key informada.
+func (c *Consumer) declareAndBind(ch *amqp.Channel, queueName, routingKey string) error {
+	q, err := ch.QueueDeclare(
+		queueName,
+		true,  // durable
+		false, // auto-delete
+		false, // exclusive
+		false, // no-wait
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	return ch.QueueBind(
+		q.Name,
+		routingKey,
+		exchangeName,
+		false,
+		nil,
+	)
+}
+
+// handlePaymentConfirmed processa o evento payment.confirmed.
 // Faz ACK em caso de sucesso ou erro de negócio (não retentável),
-// e NACK com requeue=false em caso de erro de infraestrutura (vai para DLQ se configurada).
-func (c *Consumer) handleMessage(ctx context.Context, msg amqp.Delivery) {
+// e NACK com requeue=false em caso de erro de infraestrutura.
+func (c *Consumer) handlePaymentConfirmed(ctx context.Context, msg amqp.Delivery) {
 	// Sem logar body completo — pode conter dados sensíveis (R5)
 	log.Printf("[consumer] mensagem recebida routing_key=%s delivery_tag=%d", msg.RoutingKey, msg.DeliveryTag)
 
 	var event models.PaymentConfirmedEvent
 	if err := json.Unmarshal(msg.Body, &event); err != nil {
-		log.Printf("[consumer] mensagem malformada — descartando: %v", err)
-		// ACK para evitar loop infinito com mensagem inválida
+		log.Printf("[consumer] mensagem malformada em payment.confirmed — descartando: %v", err)
 		_ = msg.Ack(false)
 		return
 	}
 
 	if event.OrderID == "" || event.CustomerID == "" || event.Amount <= 0 {
-		log.Printf("[consumer] evento inválido order_id=%q customer_id=%q amount=%.2f — descartando",
-			event.OrderID, event.CustomerID, event.Amount)
+		log.Printf("[consumer] evento payment.confirmed inválido — descartando")
 		_ = msg.Ack(false)
 		return
 	}
 
-	// Criar fatura e disparar processamento
 	processCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
@@ -194,6 +225,37 @@ func (c *Consumer) handleMessage(ctx context.Context, msg amqp.Delivery) {
 	if err := c.billingService.ProcessInvoice(processCtx, inv.ID); err != nil {
 		log.Printf("[consumer] erro ao processar fatura id=%s: %v", inv.ID, err)
 		// Fatura persiste como "failed" — retry disponível via API
+	}
+
+	_ = msg.Ack(false)
+}
+
+// handleSubscriptionCancelled processa o evento subscription.cancelled.
+// Se o motivo for "cdc_art49" e o prazo CDC ainda estiver vigente, cria RPS-D.
+// Caso contrário, apenas cancela a fatura.
+func (c *Consumer) handleSubscriptionCancelled(ctx context.Context, msg amqp.Delivery) {
+	log.Printf("[consumer] mensagem recebida routing_key=%s delivery_tag=%d", msg.RoutingKey, msg.DeliveryTag)
+
+	var event models.SubscriptionCancelledEvent
+	if err := json.Unmarshal(msg.Body, &event); err != nil {
+		log.Printf("[consumer] mensagem malformada em subscription.cancelled — descartando: %v", err)
+		_ = msg.Ack(false)
+		return
+	}
+
+	if event.OrderID == "" || event.CustomerID == "" {
+		log.Printf("[consumer] evento subscription.cancelled inválido — descartando")
+		_ = msg.Ack(false)
+		return
+	}
+
+	processCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	if err := c.billingService.HandleSubscriptionCancelled(processCtx, event); err != nil {
+		log.Printf("[consumer] erro ao processar cancelamento order_id=%s: %v", event.OrderID, err)
+		_ = msg.Nack(false, false)
+		return
 	}
 
 	_ = msg.Ack(false)

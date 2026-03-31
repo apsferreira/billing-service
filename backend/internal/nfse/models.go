@@ -2,14 +2,25 @@ package nfse
 
 import "time"
 
+// RPSTypeCode define o código numérico do tipo de RPS conforme ABRASF v2.04.
+// 1 = RPS (nota normal), 3 = RPS-D (nota de devolução/estorno).
+type RPSTypeCode int
+
+const (
+	RPSTypeRPS  RPSTypeCode = 1 // Nota de serviço normal
+	RPSTypeRPSD RPSTypeCode = 3 // Nota de devolução (estorno CDC / RPS-D)
+)
+
 // RPS — Recibo Provisório de Serviços.
 // Documento enviado ao webservice da prefeitura para solicitar emissão de NFS-e.
 // Estrutura conforme Padrão ABRASF v2.04 (Salvador/BA).
 type RPS struct {
 	// Identificação do RPS
-	Serie   string `xml:"Serie"`
-	Numero  string `xml:"Numero"`
-	DataEmissao time.Time `xml:"DataEmissao"`
+	// Tipo: 1 = RPS, 3 = RPS-D (devolução). Zero value trata-se como RPS.
+	Tipo        RPSTypeCode `xml:"Tipo"`
+	Serie       string      `xml:"Serie"`
+	Numero      string      `xml:"Numero"`
+	DataEmissao time.Time   `xml:"DataEmissao"`
 
 	// Natureza da operação (1 = tributação no município)
 	NaturezaOperacao int `xml:"NaturezaOperacao"`

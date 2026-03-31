@@ -102,6 +102,7 @@ func main() {
 	api.Get("/invoices", billingHandler.ListInvoices)
 	api.Get("/invoices/:id", billingHandler.GetInvoice)
 	api.Post("/invoices/:id/retry", billingHandler.RetryInvoice)
+	api.Post("/invoices/:id/cancel-cdc", billingHandler.CancelCDC)
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
