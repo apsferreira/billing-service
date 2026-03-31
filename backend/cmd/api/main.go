@@ -91,6 +91,7 @@ func main() {
 		// Não logar query strings completas — podem conter dados sensíveis (R5)
 		Format: "[${time}] ${status} ${method} ${path} ${latency}\n",
 	}))
+	app.Use(middleware.SecurityHeaders())
 
 	// Handlers
 	billingHandler := handler.NewBillingHandler(billingSvc)
