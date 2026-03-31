@@ -36,6 +36,10 @@ spec:
                 name: billing-config
             - secretRef:
                 name: billing-secrets
+          volumeMounts:
+            - name: cert-a1
+              mountPath: /certs
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /health
@@ -66,3 +70,7 @@ spec:
             capabilities:
               drop:
                 - ALL
+      volumes:
+        - name: cert-a1
+          secret:
+            secretName: billing-cert
