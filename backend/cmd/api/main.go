@@ -22,6 +22,21 @@ import (
 	"billing-service/internal/service"
 )
 
+// serviceTokenAuth valida o Bearer token de serviço nas rotas internas (SEC-009).
+func serviceTokenAuth(token string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if token == "" {
+			// SERVICE_TOKEN não configurado — bloqueia tudo por segurança
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+		}
+		auth := c.Get("Authorization")
+		if auth != "Bearer "+token {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+		}
+		return c.Next()
+	}
+}
+
 func main() {
 	cfg := config.Load()
 
@@ -83,7 +98,7 @@ func main() {
 	// Rotas
 	app.Get("/health", billingHandler.Health)
 
-	api := app.Group("/api/v1")
+	api := app.Group("/api/v1", serviceTokenAuth(cfg.ServiceToken))
 	api.Get("/invoices", billingHandler.ListInvoices)
 	api.Get("/invoices/:id", billingHandler.GetInvoice)
 	api.Post("/invoices/:id/retry", billingHandler.RetryInvoice)

@@ -43,7 +43,7 @@ func Load() *Config {
 	cfg := &Config{
 		Port:        getEnv("PORT", "3030"),
 		DatabaseURL: requireEnv("DATABASE_URL"),
-		RabbitMQURL: getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
+		RabbitMQURL: requireEnv("RABBITMQ_URL"),
 
 		NFSeEnvironment:  getEnv("NFSE_ENVIRONMENT", "homologacao"),
 		NFSeEndpointURL:  getEnv("NFSE_ENDPOINT_URL", "https://homologacao.sefin.salvador.ba.gov.br/nfse-ws/services/NfseServiceV2"),
