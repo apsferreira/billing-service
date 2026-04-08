@@ -50,11 +50,15 @@ type Invoice struct {
 }
 
 // PaymentConfirmedEvent representa o evento recebido via RabbitMQ.
+// Compatível com o envelope IITPaymentConfirmedData do checkout-service.
 type PaymentConfirmedEvent struct {
 	OrderID            string  `json:"order_id"`
 	CustomerID         string  `json:"customer_id"`
 	TenantID           string  `json:"tenant_id,omitempty"`
 	Amount             float64 `json:"amount"`
+	Currency           string  `json:"currency,omitempty"`
+	PaymentMethod      string  `json:"payment_method,omitempty"`
+	AsaasPaymentID     string  `json:"asaas_payment_id,omitempty"`
 	ServiceDescription string  `json:"service_description,omitempty"`
 }
 

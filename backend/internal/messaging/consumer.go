@@ -199,11 +199,26 @@ func (c *Consumer) handlePaymentConfirmed(ctx context.Context, msg amqp.Delivery
 	// Sem logar body completo — pode conter dados sensíveis (R5)
 	log.Printf("[consumer] mensagem recebida routing_key=%s delivery_tag=%d", msg.RoutingKey, msg.DeliveryTag)
 
+	// O checkout-service publica no iit.events com envelope:
+	// {"event": "payment.confirmed", "occurred_at": "...", "data": {...}}
+	// Tentamos extrair do envelope primeiro; fallback para payload direto (retrocompatibilidade).
 	var event models.PaymentConfirmedEvent
-	if err := json.Unmarshal(msg.Body, &event); err != nil {
-		log.Printf("[consumer] mensagem malformada em payment.confirmed — descartando: %v", err)
-		_ = msg.Ack(false)
-		return
+
+	var envelope struct {
+		Event string                       `json:"event"`
+		Data  models.PaymentConfirmedEvent `json:"data"`
+	}
+	if err := json.Unmarshal(msg.Body, &envelope); err == nil && envelope.Data.OrderID != "" {
+		event = envelope.Data
+		// Converter amount de float (reais) do checkout para float do billing
+		// O checkout envia Amount como float64 (ex: 39.00 = R$39)
+	} else {
+		// Fallback: payload direto (sem envelope)
+		if err := json.Unmarshal(msg.Body, &event); err != nil {
+			log.Printf("[consumer] mensagem malformada em payment.confirmed — descartando: %v", err)
+			_ = msg.Ack(false)
+			return
+		}
 	}
 
 	if event.OrderID == "" || event.CustomerID == "" || event.Amount <= 0 {
