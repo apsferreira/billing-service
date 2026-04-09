@@ -13,22 +13,47 @@ import (
 	"billing-service/internal/repository"
 )
 
+// InvoiceRepositoryPort define o contrato de acesso a dados de faturas.
+// Permite substituição por mock em testes sem depender de PostgreSQL.
+type InvoiceRepositoryPort interface {
+	Create(ctx context.Context, invoice *models.Invoice) error
+	GetByID(ctx context.Context, id uuid.UUID) (*models.Invoice, error)
+	GetByOrderID(ctx context.Context, orderID uuid.UUID) (*models.Invoice, error)
+	CountIssuedByCustomer(ctx context.Context, customerID uuid.UUID) (int, error)
+	List(ctx context.Context, filter models.ListInvoicesFilter) ([]models.Invoice, int, error)
+	UpdateStatus(ctx context.Context, id uuid.UUID, status models.InvoiceStatus, fields map[string]interface{}) error
+	IncrementAttempts(ctx context.Context, id uuid.UUID) error
+}
+
+// NFSeClientPort define o contrato de emissão de NFS-e.
+// Permite substituição por mock em testes sem chamar webservice externo.
+type NFSeClientPort interface {
+	EnviarRPS(ctx context.Context, rps *nfse.RPS) (*nfse.NFSeResponse, error)
+}
+
 // BillingService orquestra criação e emissão de NFS-e a partir de eventos de pagamento.
 type BillingService struct {
-	repo       *repository.InvoiceRepository
-	nfseClient *nfse.NFSeClient
+	repo       InvoiceRepositoryPort
+	nfseClient NFSeClientPort
 	aliquota   float64
 	itemLista  string
 }
 
 // NewBillingService cria um novo serviço de faturamento.
-func NewBillingService(repo *repository.InvoiceRepository, nfseClient *nfse.NFSeClient, aliquota float64, itemLista string) *BillingService {
+// Aceita InvoiceRepositoryPort e NFSeClientPort para facilitar testes.
+func NewBillingService(repo InvoiceRepositoryPort, nfseClient NFSeClientPort, aliquota float64, itemLista string) *BillingService {
 	return &BillingService{
 		repo:       repo,
 		nfseClient: nfseClient,
 		aliquota:   aliquota,
 		itemLista:  itemLista,
 	}
+}
+
+// NewBillingServiceFromConcrete cria o serviço com os tipos concretos de produção.
+// Mantém compatibilidade com o código existente do handler.
+func NewBillingServiceFromConcrete(repo *repository.InvoiceRepository, nfseClient *nfse.NFSeClient, aliquota float64, itemLista string) *BillingService {
+	return NewBillingService(repo, nfseClient, aliquota, itemLista)
 }
 
 // CreateFromPaymentEvent cria uma fatura a partir de um evento payment.confirmed.
