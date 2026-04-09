@@ -212,17 +212,32 @@ func (r *InvoiceRepository) List(ctx context.Context, filter models.ListInvoices
 	return invoices, total, nil
 }
 
+// allowedInvoiceFields define quais colunas podem ser atualizadas dinamicamente.
+// BKL-115: allowlist previne SQL injection via chaves do map.
+var allowedInvoiceFields = map[string]bool{
+	"status":         true,
+	"nfse_number":    true,
+	"nfse_pdf_url":   true,
+	"nfse_xml_url":   true,
+	"issued_at":      true,
+	"error_message":  true,
+	"updated_at":     true,
+}
+
 // UpdateStatus atualiza o status e campos relacionados à emissão da NFS-e.
 func (r *InvoiceRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status models.InvoiceStatus, fields map[string]interface{}) error {
 	fields["status"] = string(status)
 	fields["updated_at"] = time.Now().UTC()
 
-	// Construção segura dos campos a atualizar
+	// BKL-115: validar cada coluna contra allowlist antes de usar no SQL
 	setClause := ""
 	args := []interface{}{}
 	argIdx := 1
 
 	for k, v := range fields {
+		if !allowedInvoiceFields[k] {
+			return fmt.Errorf("campo não permitido para atualização: %s", k)
+		}
 		if setClause != "" {
 			setClause += ", "
 		}
