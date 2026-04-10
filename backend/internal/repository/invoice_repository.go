@@ -259,3 +259,62 @@ func (r *InvoiceRepository) IncrementAttempts(ctx context.Context, id uuid.UUID)
 	_, err := r.db.Exec(ctx, query, time.Now().UTC(), id)
 	return err
 }
+
+// CreateReversalAtomic cria a fatura de estorno e vincula à nota original em uma única
+// transação pgx. BKL-968: previne estado inconsistente (estorno órfão) em caso de falha parcial.
+func (r *InvoiceRepository) CreateReversalAtomic(ctx context.Context, reversal *models.Invoice, originalID uuid.UUID) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("falha ao iniciar transação: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	insertQuery := `
+		INSERT INTO invoices (
+			id, order_id, customer_id, tenant_id,
+			amount, service_description, status,
+			rps_type, cdc_deadline, original_invoice_id,
+			attempts, created_at, updated_at
+		) VALUES (
+			$1, $2, $3, $4,
+			$5, $6, $7,
+			$8, $9, $10,
+			$11, $12, $13
+		)`
+	now := time.Now().UTC()
+	reversal.CreatedAt = now
+	reversal.UpdatedAt = now
+
+	if _, err = tx.Exec(ctx, insertQuery,
+		reversal.ID,
+		reversal.OrderID,
+		reversal.CustomerID,
+		reversal.TenantID,
+		reversal.Amount,
+		reversal.ServiceDescription,
+		reversal.Status,
+		string(reversal.RPSType),
+		reversal.CDCDeadline,
+		reversal.OriginalInvoiceID,
+		reversal.Attempts,
+		reversal.CreatedAt,
+		reversal.UpdatedAt,
+	); err != nil {
+		return fmt.Errorf("erro ao inserir fatura de estorno: %w", err)
+	}
+
+	// Vincular nota original ao estorno — deve ser atômica com o insert
+	updateQuery := `UPDATE invoices SET reversed_by_invoice_id = $1, updated_at = $2 WHERE id = $3`
+	if _, err = tx.Exec(ctx, updateQuery, reversal.ID, now, originalID); err != nil {
+		return fmt.Errorf("erro ao vincular estorno à nota original: %w", err)
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("falha ao commitar transação de estorno: %w", err)
+	}
+	return nil
+}

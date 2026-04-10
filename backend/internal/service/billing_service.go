@@ -23,6 +23,9 @@ type InvoiceRepositoryPort interface {
 	List(ctx context.Context, filter models.ListInvoicesFilter) ([]models.Invoice, int, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status models.InvoiceStatus, fields map[string]interface{}) error
 	IncrementAttempts(ctx context.Context, id uuid.UUID) error
+	// CreateReversalAtomic cria a fatura de estorno e vincula à nota original em uma única
+	// transação atômica — BKL-968: previne estorno órfão em caso de falha parcial.
+	CreateReversalAtomic(ctx context.Context, reversal *models.Invoice, originalID uuid.UUID) error
 }
 
 // NFSeClientPort define o contrato de emissão de NFS-e.
@@ -145,16 +148,10 @@ func (s *BillingService) CreateReversal(ctx context.Context, originalInvoiceID u
 		OriginalInvoiceID:  &original.ID,
 	}
 
-	if err := s.repo.Create(ctx, reversal); err != nil {
+	// BKL-968: usar operação atômica — cria estorno e vincula à original em uma transação.
+	// Sem transação: se o vínculo falhar, existe nota de estorno órfã (problema fiscal irreversível).
+	if err := s.repo.CreateReversalAtomic(ctx, reversal, original.ID); err != nil {
 		return nil, fmt.Errorf("erro ao criar fatura de estorno: %w", err)
-	}
-
-	// Atualizar nota original com referência ao estorno
-	if err := s.repo.UpdateStatus(ctx, original.ID, original.Status, map[string]interface{}{
-		"reversed_by_invoice_id": reversal.ID,
-	}); err != nil {
-		log.Printf("[billing] aviso: erro ao vincular estorno id=%s à original id=%s: %v",
-			reversal.ID, original.ID, err)
 	}
 
 	log.Printf("[billing] estorno criado id=%s original_id=%s reason=%s", reversal.ID, original.ID, reason)

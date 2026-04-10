@@ -92,6 +92,15 @@ func (m *mockInvoiceRepo) IncrementAttempts(ctx context.Context, id uuid.UUID) e
 	return nil
 }
 
+func (m *mockInvoiceRepo) CreateReversalAtomic(ctx context.Context, reversal *models.Invoice, originalID uuid.UUID) error {
+	// Simula a operação atômica: cria o estorno e vincula à original
+	m.invoices[reversal.ID] = reversal
+	if original, ok := m.invoices[originalID]; ok {
+		original.ReversedByInvoiceID = &reversal.ID
+	}
+	return nil
+}
+
 // mockNFSeClient simula o cliente NFS-e sem chamar a prefeitura.
 type mockNFSeClient struct {
 	shouldFail bool
