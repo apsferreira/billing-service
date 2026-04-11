@@ -3,7 +3,7 @@ package messaging
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -45,14 +45,17 @@ func (c *Consumer) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("[consumer] contexto cancelado — encerrando consumer")
+			slog.InfoContext(ctx, "contexto cancelado — encerrando consumer")
 			return
 		default:
 		}
 
-		log.Printf("[consumer] conectando ao RabbitMQ...")
+		slog.InfoContext(ctx, "conectando ao RabbitMQ")
 		if err := c.run(ctx); err != nil {
-			log.Printf("[consumer] erro: %v — reconectando em %s", err, backoff)
+			slog.WarnContext(ctx, "erro na conexão RabbitMQ — reconectando",
+				slog.String("error", err.Error()),
+				slog.String("backoff", backoff.String()),
+			)
 		}
 
 		select {
@@ -138,7 +141,10 @@ func (c *Consumer) run(ctx context.Context) error {
 		return err
 	}
 
-	log.Printf("[consumer] aguardando eventos: %s e %s", routingPaymentConfirmed, routingSubscriptionCancelled)
+	slog.InfoContext(ctx, "aguardando eventos",
+		slog.String("routing_key_1", routingPaymentConfirmed),
+		slog.String("routing_key_2", routingSubscriptionCancelled),
+	)
 
 	// Monitorar fechamento da conexão
 	connClosed := conn.NotifyClose(make(chan *amqp.Error, 1))
@@ -197,7 +203,10 @@ func (c *Consumer) declareAndBind(ch *amqp.Channel, queueName, routingKey string
 // e NACK com requeue=false em caso de erro de infraestrutura.
 func (c *Consumer) handlePaymentConfirmed(ctx context.Context, msg amqp.Delivery) {
 	// Sem logar body completo — pode conter dados sensíveis (R5)
-	log.Printf("[consumer] mensagem recebida routing_key=%s delivery_tag=%d", msg.RoutingKey, msg.DeliveryTag)
+	slog.InfoContext(ctx, "mensagem recebida",
+		slog.String("routing_key", msg.RoutingKey),
+		slog.Uint64("delivery_tag", msg.DeliveryTag),
+	)
 
 	// O checkout-service publica no iit.events com envelope:
 	// {"event": "payment.confirmed", "occurred_at": "...", "data": {...}}
@@ -215,14 +224,16 @@ func (c *Consumer) handlePaymentConfirmed(ctx context.Context, msg amqp.Delivery
 	} else {
 		// Fallback: payload direto (sem envelope)
 		if err := json.Unmarshal(msg.Body, &event); err != nil {
-			log.Printf("[consumer] mensagem malformada em payment.confirmed — descartando: %v", err)
+			slog.WarnContext(ctx, "mensagem malformada em payment.confirmed — descartando",
+				slog.String("error", err.Error()),
+			)
 			_ = msg.Ack(false)
 			return
 		}
 	}
 
 	if event.OrderID == "" || event.CustomerID == "" || event.Amount <= 0 {
-		log.Printf("[consumer] evento payment.confirmed inválido — descartando")
+		slog.WarnContext(ctx, "evento payment.confirmed inválido — descartando")
 		_ = msg.Ack(false)
 		return
 	}
@@ -232,13 +243,19 @@ func (c *Consumer) handlePaymentConfirmed(ctx context.Context, msg amqp.Delivery
 
 	inv, err := c.billingService.CreateFromPaymentEvent(processCtx, event)
 	if err != nil {
-		log.Printf("[consumer] erro ao criar fatura order_id=%s: %v", event.OrderID, err)
+		slog.ErrorContext(ctx, "erro ao criar fatura",
+			slog.String("order_id", event.OrderID),
+			slog.String("error", err.Error()),
+		)
 		_ = msg.Nack(false, false) // não recolocar na fila — evitar loop
 		return
 	}
 
 	if err := c.billingService.ProcessInvoice(processCtx, inv.ID); err != nil {
-		log.Printf("[consumer] erro ao processar fatura id=%s: %v", inv.ID, err)
+		slog.WarnContext(ctx, "erro ao processar fatura",
+			slog.String("invoice_id", inv.ID.String()),
+			slog.String("error", err.Error()),
+		)
 		// Fatura persiste como "failed" — retry disponível via API
 	}
 
@@ -249,17 +266,22 @@ func (c *Consumer) handlePaymentConfirmed(ctx context.Context, msg amqp.Delivery
 // Se o motivo for "cdc_art49" e o prazo CDC ainda estiver vigente, cria RPS-D.
 // Caso contrário, apenas cancela a fatura.
 func (c *Consumer) handleSubscriptionCancelled(ctx context.Context, msg amqp.Delivery) {
-	log.Printf("[consumer] mensagem recebida routing_key=%s delivery_tag=%d", msg.RoutingKey, msg.DeliveryTag)
+	slog.InfoContext(ctx, "mensagem recebida",
+		slog.String("routing_key", msg.RoutingKey),
+		slog.Uint64("delivery_tag", msg.DeliveryTag),
+	)
 
 	var event models.SubscriptionCancelledEvent
 	if err := json.Unmarshal(msg.Body, &event); err != nil {
-		log.Printf("[consumer] mensagem malformada em subscription.cancelled — descartando: %v", err)
+		slog.WarnContext(ctx, "mensagem malformada em subscription.cancelled — descartando",
+			slog.String("error", err.Error()),
+		)
 		_ = msg.Ack(false)
 		return
 	}
 
 	if event.OrderID == "" || event.CustomerID == "" {
-		log.Printf("[consumer] evento subscription.cancelled inválido — descartando")
+		slog.WarnContext(ctx, "evento subscription.cancelled inválido — descartando")
 		_ = msg.Ack(false)
 		return
 	}
@@ -268,7 +290,10 @@ func (c *Consumer) handleSubscriptionCancelled(ctx context.Context, msg amqp.Del
 	defer cancel()
 
 	if err := c.billingService.HandleSubscriptionCancelled(processCtx, event); err != nil {
-		log.Printf("[consumer] erro ao processar cancelamento order_id=%s: %v", event.OrderID, err)
+		slog.ErrorContext(ctx, "erro ao processar cancelamento",
+			slog.String("order_id", event.OrderID),
+			slog.String("error", err.Error()),
+		)
 		_ = msg.Nack(false, false)
 		return
 	}

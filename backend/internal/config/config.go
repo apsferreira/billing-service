@@ -1,7 +1,7 @@
 package config
 
 import (
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 )
@@ -74,7 +74,8 @@ func getEnv(key, fallback string) string {
 func requireEnv(key string) string {
 	v := os.Getenv(key)
 	if v == "" {
-		log.Fatalf("variável de ambiente obrigatória não definida: %s", key)
+		slog.Error("variável de ambiente obrigatória não definida", slog.String("key", key))
+		os.Exit(1)
 	}
 	return v
 }

@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gofiber/fiber/v2"
@@ -25,8 +25,12 @@ func ErrorHandler(c *fiber.Ctx, err error) error {
 	}
 
 	// Logar sem dados sensíveis (R5)
-	log.Printf("[error_handler] status=%d path=%s method=%s err=%v",
-		code, c.Path(), c.Method(), err)
+	slog.Error("requisição com erro",
+		slog.Int("status", code),
+		slog.String("path", c.Path()),
+		slog.String("method", c.Method()),
+		slog.String("error", err.Error()),
+	)
 
 	return c.Status(code).JSON(ErrorResponse{
 		Error:   http.StatusText(code),

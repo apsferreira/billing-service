@@ -6,7 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -47,7 +47,9 @@ func NewNFSeClient(endpointURL, environment, providerCNPJ, providerIM, certPath,
 	if certPath == "" {
 		// Modo stub: HTTP client padrão sem mTLS (certificado A1 pendente)
 		c.httpClient = &http.Client{Timeout: 30 * time.Second}
-		log.Printf("[nfse] inicializado em modo stub — NFSE_CERT_PATH não definido (ambiente: %s). Emissão real desabilitada até configurar certificado A1.", environment)
+		slog.Info("nfse inicializado em modo stub — emissão real desabilitada até configurar certificado A1",
+			slog.String("environment", environment),
+		)
 		return c, nil
 	}
 
@@ -67,8 +69,10 @@ func NewNFSeClient(endpointURL, environment, providerCNPJ, providerIM, certPath,
 		Timeout:   30 * time.Second,
 	}
 
-	log.Printf("[nfse] cliente inicializado com certificado A1 — CN=%s ambiente=%s",
-		bundle.X509Cert.Subject.CommonName, environment)
+	slog.Info("nfse cliente inicializado com certificado A1",
+		slog.String("cert_cn", bundle.X509Cert.Subject.CommonName),
+		slog.String("environment", environment),
+	)
 
 	return c, nil
 }
@@ -324,8 +328,12 @@ func parseCancelarNfseResponse(soapBody string) error {
 
 func (c *NFSeClient) stubEnviarRPS(rps *RPS) (*NFSeResponse, error) {
 	// Não logar dados do tomador (R5)
-	log.Printf("[nfse-stub] EnviarRPS — prestador CNPJ=%s serie=%s numero=%s valor=%.2f",
-		c.providerCNPJ, rps.Serie, rps.Numero, rps.ValorServicos)
+	slog.Info("nfse-stub EnviarRPS",
+		slog.String("provider_cnpj", c.providerCNPJ),
+		slog.String("serie", rps.Serie),
+		slog.String("numero", rps.Numero),
+		slog.Float64("valor_servicos", rps.ValorServicos),
+	)
 
 	numero := fmt.Sprintf("STUB-%d", time.Now().UnixMilli())
 	return &NFSeResponse{
@@ -336,6 +344,9 @@ func (c *NFSeClient) stubEnviarRPS(rps *RPS) (*NFSeResponse, error) {
 }
 
 func (c *NFSeClient) stubCancelarNFSe(nfseNumber, motivo string) error {
-	log.Printf("[nfse-stub] CancelarNFSe — numero=%s motivo=%q", nfseNumber, motivo)
+	slog.Info("nfse-stub CancelarNFSe",
+		slog.String("nfse_number", nfseNumber),
+		slog.String("motivo", motivo),
+	)
 	return nil
 }

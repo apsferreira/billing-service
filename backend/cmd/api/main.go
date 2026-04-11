@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -50,7 +51,7 @@ func main() {
 	if err := dbPool.Ping(context.Background()); err != nil {
 		log.Fatalf("falha ao verificar conexão com banco de dados: %v", err)
 	}
-	log.Println("PostgreSQL conectado")
+	slog.Info("PostgreSQL conectado")
 
 	// Dependências
 	invoiceRepo := repository.NewInvoiceRepository(dbPool)
@@ -75,7 +76,7 @@ func main() {
 	defer cancelConsumer()
 
 	go consumer.Start(consumerCtx)
-	log.Println("Consumer RabbitMQ iniciado")
+	slog.Info("Consumer RabbitMQ iniciado")
 
 	// Fiber
 	app := fiber.New(fiber.Config{
@@ -110,14 +111,18 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("%s iniciando na porta %s (ambiente NFS-e: %s)", cfg.ServiceName, cfg.Port, cfg.NFSeEnvironment)
+		slog.Info("servidor iniciando",
+			slog.String("service", cfg.ServiceName),
+			slog.String("port", cfg.Port),
+			slog.String("nfse_environment", cfg.NFSeEnvironment),
+		)
 		if err := app.Listen(":" + cfg.Port); err != nil {
 			log.Fatal("servidor encerrado com erro:", err)
 		}
 	}()
 
 	<-quit
-	log.Println("Encerrando servidor...")
+	slog.Info("encerrando servidor")
 
 	cancelConsumer()
 
@@ -128,5 +133,5 @@ func main() {
 		log.Fatal("erro no shutdown do servidor:", err)
 	}
 
-	log.Println("Servidor encerrado")
+	slog.Info("servidor encerrado")
 }

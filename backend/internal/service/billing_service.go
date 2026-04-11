@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -71,7 +71,11 @@ func (s *BillingService) CreateFromPaymentEvent(ctx context.Context, event model
 	// Idempotência: checar se já existe fatura para este pedido
 	existing, err := s.repo.GetByOrderID(ctx, orderID)
 	if err == nil && existing != nil {
-		log.Printf("[billing] fatura já existe para order_id=%s id=%s status=%s", orderID, existing.ID, existing.Status)
+		slog.InfoContext(ctx, "fatura já existe para order_id",
+			slog.String("order_id", orderID.String()),
+			slog.String("invoice_id", existing.ID.String()),
+			slog.String("status", string(existing.Status)),
+		)
 		return existing, nil
 	}
 
@@ -106,20 +110,30 @@ func (s *BillingService) CreateFromPaymentEvent(ctx context.Context, event model
 	// CDC Art. 49: definir prazo de 7 dias apenas na primeira fatura do cliente
 	count, err := s.repo.CountIssuedByCustomer(ctx, customerID)
 	if err != nil {
-		log.Printf("[billing] erro ao verificar histórico do cliente id=%s: %v", customerID, err)
+		slog.WarnContext(ctx, "erro ao verificar histórico do cliente",
+			slog.String("customer_id", customerID.String()),
+			slog.String("error", err.Error()),
+		)
 		// Não bloquear criação — tratar como não-primeira para segurança
 	} else if count == 0 {
 		deadline := time.Now().UTC().AddDate(0, 0, 7)
 		inv.CDCDeadline = &deadline
-		log.Printf("[billing] prazo CDC definido para fatura id=%s deadline=%s", inv.ID, deadline.Format(time.RFC3339))
+		slog.InfoContext(ctx, "prazo CDC definido para fatura",
+			slog.String("invoice_id", inv.ID.String()),
+			slog.String("cdc_deadline", deadline.Format(time.RFC3339)),
+		)
 	}
 
 	if err := s.repo.Create(ctx, inv); err != nil {
 		return nil, err
 	}
 
-	log.Printf("[billing] fatura criada id=%s order_id=%s amount=%.2f rps_type=%s",
-		inv.ID, inv.OrderID, inv.Amount, inv.RPSType)
+	slog.InfoContext(ctx, "fatura criada",
+		slog.String("invoice_id", inv.ID.String()),
+		slog.String("order_id", inv.OrderID.String()),
+		slog.Float64("amount", inv.Amount),
+		slog.String("rps_type", string(inv.RPSType)),
+	)
 	return inv, nil
 }
 
@@ -154,7 +168,11 @@ func (s *BillingService) CreateReversal(ctx context.Context, originalInvoiceID u
 		return nil, fmt.Errorf("erro ao criar fatura de estorno: %w", err)
 	}
 
-	log.Printf("[billing] estorno criado id=%s original_id=%s reason=%s", reversal.ID, original.ID, reason)
+	slog.InfoContext(ctx, "estorno criado",
+		slog.String("reversal_id", reversal.ID.String()),
+		slog.String("original_invoice_id", original.ID.String()),
+		slog.String("reason", reason),
+	)
 	return reversal, nil
 }
 
@@ -167,7 +185,10 @@ func (s *BillingService) ProcessInvoice(ctx context.Context, invoiceID uuid.UUID
 	}
 
 	if inv.Status == models.StatusIssued || inv.Status == models.StatusCancelled {
-		log.Printf("[billing] fatura id=%s já está em status final %s — ignorando", inv.ID, inv.Status)
+		slog.InfoContext(ctx, "fatura já está em status final — ignorando",
+			slog.String("invoice_id", inv.ID.String()),
+			slog.String("status", string(inv.Status)),
+		)
 		return nil
 	}
 
@@ -177,7 +198,10 @@ func (s *BillingService) ProcessInvoice(ctx context.Context, invoiceID uuid.UUID
 	}
 
 	if err := s.repo.IncrementAttempts(ctx, inv.ID); err != nil {
-		log.Printf("[billing] erro ao incrementar tentativas id=%s: %v", inv.ID, err)
+		slog.WarnContext(ctx, "erro ao incrementar tentativas",
+			slog.String("invoice_id", inv.ID.String()),
+			slog.String("error", err.Error()),
+		)
 	}
 
 	// Montar RPS (normal ou devolução)
@@ -187,12 +211,19 @@ func (s *BillingService) ProcessInvoice(ctx context.Context, invoiceID uuid.UUID
 	resp, err := s.nfseClient.EnviarRPS(ctx, rps)
 	if err != nil {
 		errMsg := err.Error()
-		log.Printf("[billing] falha ao emitir NFS-e id=%s rps_type=%s: %v", inv.ID, inv.RPSType, err)
+		slog.ErrorContext(ctx, "falha ao emitir NFS-e",
+			slog.String("invoice_id", inv.ID.String()),
+			slog.String("rps_type", string(inv.RPSType)),
+			slog.String("error", err.Error()),
+		)
 		// Sem logar dados sensíveis do cliente (R5)
 		if updateErr := s.repo.UpdateStatus(ctx, inv.ID, models.StatusFailed, map[string]interface{}{
 			"error_message": errMsg,
 		}); updateErr != nil {
-			log.Printf("[billing] erro ao persistir falha id=%s: %v", inv.ID, updateErr)
+			slog.ErrorContext(ctx, "erro ao persistir falha de emissão",
+				slog.String("invoice_id", inv.ID.String()),
+				slog.String("error", updateErr.Error()),
+			)
 		}
 		return err
 	}
@@ -209,7 +240,11 @@ func (s *BillingService) ProcessInvoice(ctx context.Context, invoiceID uuid.UUID
 		return err
 	}
 
-	log.Printf("[billing] NFS-e emitida id=%s rps_type=%s nfse_number=%s", inv.ID, inv.RPSType, resp.Numero)
+	slog.InfoContext(ctx, "NFS-e emitida com sucesso",
+		slog.String("invoice_id", inv.ID.String()),
+		slog.String("rps_type", string(inv.RPSType)),
+		slog.String("nfse_number", resp.Numero),
+	)
 	return nil
 }
 
@@ -245,17 +280,24 @@ func (s *BillingService) HandleSubscriptionCancelled(ctx context.Context, event 
 				emitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 				defer cancel()
 				if err := s.ProcessInvoice(emitCtx, reversal.ID); err != nil {
-					log.Printf("[billing] erro ao emitir RPS-D id=%s: %v", reversal.ID, err)
+					slog.ErrorContext(emitCtx, "erro ao emitir RPS-D",
+						slog.String("reversal_id", reversal.ID.String()),
+						slog.String("error", err.Error()),
+					)
 				}
 			}()
 
-			log.Printf("[billing] cancelamento CDC processado: estorno id=%s criado para fatura id=%s",
-				reversal.ID, original.ID)
+			slog.InfoContext(ctx, "cancelamento CDC processado com estorno",
+				slog.String("reversal_id", reversal.ID.String()),
+				slog.String("original_invoice_id", original.ID.String()),
+			)
 			return nil
 		}
 
 		// Prazo CDC expirado — apenas cancelar sem estorno fiscal
-		log.Printf("[billing] prazo CDC expirado para fatura id=%s — cancelando sem RPS-D", original.ID)
+		slog.InfoContext(ctx, "prazo CDC expirado — cancelando sem RPS-D",
+			slog.String("invoice_id", original.ID.String()),
+		)
 	}
 
 	// Cancelamento comum ou prazo CDC expirado
@@ -263,7 +305,10 @@ func (s *BillingService) HandleSubscriptionCancelled(ctx context.Context, event 
 		return fmt.Errorf("erro ao cancelar fatura id=%s: %w", original.ID, err)
 	}
 
-	log.Printf("[billing] fatura cancelada id=%s reason=%s", original.ID, event.Reason)
+	slog.InfoContext(ctx, "fatura cancelada",
+		slog.String("invoice_id", original.ID.String()),
+		slog.String("reason", event.Reason),
+	)
 	return nil
 }
 
