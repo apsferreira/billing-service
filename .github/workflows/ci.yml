@@ -26,7 +26,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build-backend:
     name: Build e Test Backend
-    runs-on: ubuntu-latest
+    runs-on: iit-billing
     permissions:
       contents: read
       packages: write
@@ -107,7 +107,7 @@ jobs:
   # ---------------------------------------------------------------------------
   update-manifests:
     name: Atualizar Manifests K8s
-    runs-on: ubuntu-latest
+    runs-on: iit-billing
     needs: build-backend
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
