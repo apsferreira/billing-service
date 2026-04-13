@@ -90,6 +90,15 @@ jobs:
             type=sha,prefix=sha-,format=short
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
+      - name: Pre-pull base images
+        if: github.event_name != 'pull_request'
+        run: |
+          for img in golang:1.24-alpine alpine:3.21; do
+            for i in 1 2 3; do
+              docker pull "$img" && break || sleep 10
+            done
+          done
+
       - name: Build e Push imagem
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v5
