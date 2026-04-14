@@ -95,11 +95,6 @@ jobs:
             type=raw,value=main-latest
             type=sha,prefix=sha-
 
-      - name: Setup Buildx driver docker
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver: docker
-
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
