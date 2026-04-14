@@ -9,7 +9,7 @@ FROM golang:1.24-alpine AS builder
 ENV GOTOOLCHAIN=auto
 ENV GODEBUG=preferIPv4Lookups=1
 ENV GONOSUMDB=*
-ENV GOPROXY=https://goproxy.io,direct
+ENV GOPROXY=https://proxy.golang.org,direct
 ENV CGO_ENABLED=0
 
 WORKDIR /app
