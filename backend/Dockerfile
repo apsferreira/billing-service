@@ -15,11 +15,13 @@ WORKDIR /app
 RUN apk add --no-cache git ca-certificates tzdata
 
 COPY go.mod ./
-RUN go mod download || true
+RUN --mount=type=cache,target=/root/go/pkg/mod go mod download || true
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build \
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build \
     -mod=mod \
     -ldflags="-w -s" \
     -o billing-service \
