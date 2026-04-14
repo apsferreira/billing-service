@@ -63,7 +63,7 @@ jobs:
     name: Build & Push Backend
     runs-on: iit-billing
     if: github.ref == 'refs/heads/main'
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
