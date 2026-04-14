@@ -4,7 +4,7 @@
 # =============================================================================
 
 # Builder
-FROM golang:1.24-alpine AS builder
+FROM golang:1.24 AS builder
 
 ENV GOTOOLCHAIN=auto
 ENV GODEBUG=preferIPv4Lookups=1
@@ -12,7 +12,6 @@ ENV CGO_ENABLED=0
 
 WORKDIR /app
 
-RUN apk add --no-cache git ca-certificates tzdata
 
 COPY go.mod ./
 RUN --mount=type=cache,target=/root/go/pkg/mod go mod download || true
@@ -30,7 +29,6 @@ RUN --mount=type=cache,target=/root/go/pkg/mod \
 # Production
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /app/billing-service /billing-service
 
