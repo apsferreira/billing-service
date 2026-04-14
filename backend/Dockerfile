@@ -7,6 +7,7 @@
 FROM golang:1.24-alpine AS builder
 
 ENV GOTOOLCHAIN=auto
+ENV GODEBUG=preferIPv4Lookups=1
 
 WORKDIR /app
 
