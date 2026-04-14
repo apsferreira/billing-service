@@ -4,23 +4,22 @@
 # =============================================================================
 
 # Builder
-FROM golang:1.24 AS builder
+FROM golang:1.24-alpine AS builder
 
 ENV GOTOOLCHAIN=auto
 ENV GODEBUG=preferIPv4Lookups=1
+ENV GONOSUMDB=*
 ENV CGO_ENABLED=0
 
 WORKDIR /app
 
 
-COPY go.mod ./
-RUN --mount=type=cache,target=/root/go/pkg/mod go mod download || true
+COPY go.mod go.sum* ./
+RUN go mod download || true
 
 COPY . .
 
-RUN --mount=type=cache,target=/root/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build \
+RUN CGO_ENABLED=0 GOOS=linux go build \
     -mod=mod \
     -ldflags="-w -s" \
     -o billing-service \
