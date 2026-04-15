@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: ghcr.io/apsferreira/billing-service:sha-a9b05fe
+          image: ghcr.io/apsferreira/billing-service:sha-c2c1591
           ports:
             - containerPort: 3030
               name: http
