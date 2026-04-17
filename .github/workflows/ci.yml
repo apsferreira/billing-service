@@ -103,8 +103,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=local,src=/home/runner/buildcache-billing-backend
-          cache-to: type=local,dest=/home/runner/buildcache-billing-backend,mode=max
 
   update-manifest:
     name: Update K8s Manifest
