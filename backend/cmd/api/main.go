@@ -21,6 +21,9 @@ import (
 	"billing-service/internal/nfse"
 	"billing-service/internal/repository"
 	"billing-service/internal/service"
+	fiberSwagger "github.com/swaggo/fiber-swagger"
+
+	_ "billing-service/docs/swagger"
 )
 
 // serviceTokenAuth valida o Bearer token de serviço nas rotas internas (SEC-009).
@@ -99,6 +102,7 @@ func main() {
 
 	// Rotas
 	app.Get("/health", billingHandler.Health)
+	app.Get("/swagger/*", fiberSwagger.WrapHandler)
 
 	api := app.Group("/api/v1", serviceTokenAuth(cfg.ServiceToken))
 	api.Get("/invoices", billingHandler.ListInvoices)

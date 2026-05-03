@@ -22,9 +22,19 @@ func NewBillingHandler(svc *service.BillingService) *BillingHandler {
 	return &BillingHandler{svc: svc}
 }
 
-// ListInvoices godoc
-// GET /invoices
-// Query: status, customer_id, page, page_size
+// ListInvoices lista faturas com filtros opcionais.
+//
+//	@Summary		Listar faturas
+//	@Tags			invoices
+//	@Produce		json
+//	@Param			status		query		string	false	"Filtro por status (pending|processing|emitted|failed|cancelled)"
+//	@Param			customer_id	query		string	false	"UUID do cliente"
+//	@Param			page		query		int		false	"Página (padrão 1)"
+//	@Param			page_size	query		int		false	"Itens por página (padrão 20)"
+//	@Success		200			{object}	models.PaginatedInvoices
+//	@Failure		500			{object}	map[string]string
+//	@Security		ServiceToken
+//	@Router			/invoices [get]
 func (h *BillingHandler) ListInvoices(c *fiber.Ctx) error {
 	filter := models.ListInvoicesFilter{
 		Status:     models.InvoiceStatus(c.Query("status")),
@@ -41,8 +51,17 @@ func (h *BillingHandler) ListInvoices(c *fiber.Ctx) error {
 	return c.JSON(result)
 }
 
-// GetInvoice godoc
-// GET /invoices/:id
+// GetInvoice busca uma fatura pelo ID.
+//
+//	@Summary		Buscar fatura
+//	@Tags			invoices
+//	@Produce		json
+//	@Param			id	path		string	true	"UUID da fatura"
+//	@Success		200	{object}	models.Invoice
+//	@Failure		400	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Security		ServiceToken
+//	@Router			/invoices/{id} [get]
 func (h *BillingHandler) GetInvoice(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
@@ -57,9 +76,18 @@ func (h *BillingHandler) GetInvoice(c *fiber.Ctx) error {
 	return c.JSON(inv)
 }
 
-// RetryInvoice godoc
-// POST /invoices/:id/retry
-// Reprocessa uma fatura que falhou.
+// RetryInvoice reprocessa uma fatura que falhou.
+//
+//	@Summary		Reprocessar fatura
+//	@Tags			invoices
+//	@Produce		json
+//	@Param			id	path		string	true	"UUID da fatura"
+//	@Success		200	{object}	map[string]string
+//	@Failure		400	{object}	map[string]string
+//	@Failure		409	{object}	map[string]string
+//	@Failure		500	{object}	map[string]string
+//	@Security		ServiceToken
+//	@Router			/invoices/{id}/retry [post]
 func (h *BillingHandler) RetryInvoice(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
@@ -79,10 +107,20 @@ func (h *BillingHandler) RetryInvoice(c *fiber.Ctx) error {
 	})
 }
 
-// CancelCDC godoc
-// POST /invoices/:id/cancel-cdc
-// Cancela uma fatura dentro do prazo CDC Art. 49 (7 dias da primeira contratação).
-// Se o prazo ainda estiver vigente, cria uma nota de devolução (RPS-D) e a emite em background.
+// CancelCDC cancela uma fatura dentro do prazo CDC Art. 49 (7 dias).
+// Cria nota de devolução (RPS-D) e emite em background se dentro do prazo.
+//
+//	@Summary		Cancelar fatura por direito de arrependimento (CDC Art. 49)
+//	@Tags			invoices
+//	@Produce		json
+//	@Param			id	path		string	true	"UUID da fatura"
+//	@Success		200	{object}	map[string]interface{}
+//	@Failure		400	{object}	map[string]string
+//	@Failure		404	{object}	map[string]string
+//	@Failure		409	{object}	map[string]string
+//	@Failure		422	{object}	map[string]string
+//	@Security		ServiceToken
+//	@Router			/invoices/{id}/cancel-cdc [post]
 func (h *BillingHandler) CancelCDC(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
@@ -129,8 +167,13 @@ func (h *BillingHandler) CancelCDC(c *fiber.Ctx) error {
 	})
 }
 
-// Health godoc
-// GET /health
+// Health verifica o status do serviço.
+//
+//	@Summary		Health check
+//	@Tags			system
+//	@Produce		json
+//	@Success		200	{object}	map[string]string
+//	@Router			/health [get]
 func (h *BillingHandler) Health(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"status":  "ok",

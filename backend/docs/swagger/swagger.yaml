@@ -1,0 +1,251 @@
+definitions:
+  models.Invoice:
+    properties:
+      amount:
+        type: number
+      attempts:
+        type: integer
+      cdc_deadline:
+        type: string
+      created_at:
+        type: string
+      customer_id:
+        type: string
+      error_message:
+        type: string
+      id:
+        type: string
+      issued_at:
+        type: string
+      nfse_code:
+        type: string
+      nfse_number:
+        type: string
+      nfse_pdf_url:
+        type: string
+      nfse_xml:
+        type: string
+      order_id:
+        type: string
+      original_invoice_id:
+        type: string
+      reversed_by_invoice_id:
+        type: string
+      rps_type:
+        $ref: '#/definitions/models.RPSType'
+      service_description:
+        type: string
+      status:
+        $ref: '#/definitions/models.InvoiceStatus'
+      tenant_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  models.InvoiceStatus:
+    enum:
+    - pending
+    - processing
+    - issued
+    - failed
+    - cancelled
+    type: string
+    x-enum-varnames:
+    - StatusPending
+    - StatusProcessing
+    - StatusIssued
+    - StatusFailed
+    - StatusCancelled
+  models.PaginatedInvoices:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/models.Invoice'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
+  models.RPSType:
+    enum:
+    - RPS
+    - RPS-D
+    type: string
+    x-enum-varnames:
+    - RPSTypeNormal
+    - RPSTypeDevolucao
+info:
+  contact: {}
+paths:
+  /health:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check
+      tags:
+      - system
+  /invoices:
+    get:
+      parameters:
+      - description: Filtro por status (pending|processing|emitted|failed|cancelled)
+        in: query
+        name: status
+        type: string
+      - description: UUID do cliente
+        in: query
+        name: customer_id
+        type: string
+      - description: Página (padrão 1)
+        in: query
+        name: page
+        type: integer
+      - description: Itens por página (padrão 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.PaginatedInvoices'
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ServiceToken: []
+      summary: Listar faturas
+      tags:
+      - invoices
+  /invoices/{id}:
+    get:
+      parameters:
+      - description: UUID da fatura
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Invoice'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ServiceToken: []
+      summary: Buscar fatura
+      tags:
+      - invoices
+  /invoices/{id}/cancel-cdc:
+    post:
+      parameters:
+      - description: UUID da fatura
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ServiceToken: []
+      summary: Cancelar fatura por direito de arrependimento (CDC Art. 49)
+      tags:
+      - invoices
+  /invoices/{id}/retry:
+    post:
+      parameters:
+      - description: UUID da fatura
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ServiceToken: []
+      summary: Reprocessar fatura
+      tags:
+      - invoices
+swagger: "2.0"
